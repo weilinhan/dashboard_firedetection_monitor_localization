@@ -1,0 +1,10 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\dashboard-app",
+    "\\dashboard-app\\app",
+    "\\mqtt-server"
+  ],
+  "SelectedNode": "\\mqtt-server\\serverorigan.txt",
+  "PreviewInSolutionExplorer": false
+}

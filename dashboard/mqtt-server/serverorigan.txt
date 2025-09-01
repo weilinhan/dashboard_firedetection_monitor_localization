@@ -1,0 +1,83 @@
+const mqtt = require('mqtt');
+const WebSocket = require('ws');
+const fs = require('fs');
+
+// Create WebSocket server
+const wss = new WebSocket.Server({ port: 8080 });
+let sockets = [];
+
+wss.on('connection', ws => {
+    sockets.push(ws);
+    ws.on('close', () => {
+        sockets = sockets.filter(s => s !== ws);
+    });
+});
+
+// Connect to AWS IoT Core
+const mqttClient = mqtt.connect({
+    host: 'a1dtwlsw1olgol-ats.iot.eu-central-1.amazonaws.com',
+    port: 8883,
+    protocol: 'mqtts',
+    key: fs.readFileSync('./private.pem.key'),
+    cert: fs.readFileSync('./certificate.pem.crt'),
+    ca: fs.readFileSync('./AmazonRootCA1.pem'),
+});
+
+mqttClient.on('connect', () => {
+    console.log('Connected to AWS IoT');
+
+    // Subscribe to environmental data topic
+    mqttClient.subscribe('dashboard/data', (err) => {
+        if (err) {
+            console.error('Failed to subscribe to dashboard/data:', err);
+        } else {
+            console.log('Subscribed to dashboard/data');
+        }
+    });
+
+    // Subscribe to ARTag detection topic
+    mqttClient.subscribe('transbot/tag', (err) => {
+        if (err) {
+            console.error('Failed to subscribe to transbot/tag:', err);
+        } else {
+            console.log('Subscribed to transbot/tag');
+        }
+    });
+});
+
+mqttClient.on('message', (topic, message) => {
+    console.log('Received MQTT message:', topic, message.toString());
+
+    try {
+        const data = JSON.parse(message.toString());
+
+        if (topic === 'dashboard/data') {
+            // Forward environmental sensor data
+            sockets.forEach(ws => ws.send(JSON.stringify(data)));
+            console.log('Forwarded dashboard data to WebSocket:', data);
+        }
+
+        if (topic === 'transbot/tag') {
+            const tagId = data.id;
+
+            const edgeMap = {
+                31: 'top',
+                32: 'right',
+                33: 'bottom',
+                34: 'left'
+            };
+
+            const edge = edgeMap[tagId] || null;
+
+            if (edge) {
+                const update = { currentEdge: edge };
+                sockets.forEach(ws => ws.send(JSON.stringify(update)));
+                console.log(`Sent ARTag to WebSocket: ${JSON.stringify(update)}`);
+            } else {
+                console.warn(`Unknown tag ID received: ${tagId}`);
+            }
+        }
+    } catch (err) {
+        console.error('Error handling MQTT message:', err);
+    }
+});

@@ -1,0 +1,141 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { Line } from 'react-chartjs-2';
+import { Chart, registerables } from 'chart.js';
+Chart.register(...registerables);
+
+export default function Dashboard() {
+    const [dataPoints, setDataPoints] = useState([]);
+    const [current, setCurrent] = useState({ temp: 0, hum: 0, mq: 0 });
+    const [currentEdge, setCurrentEdge] = useState<string | null>(null);
+
+    useEffect(() => {
+        const ws = new WebSocket('ws://localhost:8080');
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.currentEdge) {
+                // Received ARTag ID mapped to a track edge
+                setCurrentEdge(data.currentEdge);
+            } else {
+                // Received environmental sensor data
+                setCurrent({
+                    temp: data.temperature,
+                    hum: data.humidity,
+                    mq: data.mq135
+                });
+
+                setDataPoints(prev => [
+                    ...prev.slice(-19),
+                    {
+                        time: new Date().toLocaleTimeString(),
+                        temp: data.temperature,
+                        hum: data.humidity,
+                        mq: data.mq135
+                    }
+                ]);
+            }
+        };
+
+        return () => ws.close();
+    }, []);
+
+    const calculateMinMax = (key) => {
+        const values = dataPoints.map(d => d[key]);
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        if (min === max) return { min: min - 1, max: max + 1 };
+        return { min: Math.floor(min - 2), max: Math.ceil(max + 2) };
+    };
+
+    const chartOptions = (key) => {
+        const range = calculateMinMax(key);
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { display: true },
+                y: { min: range.min, max: range.max }
+            },
+            plugins: {
+                legend: { position: 'top' }
+            }
+        };
+    };
+
+    const generateChart = (label, key, color) => ({
+        labels: dataPoints.map(d => d.time),
+        datasets: [{
+            label,
+            data: dataPoints.map(d => d[key]),
+            fill: false,
+            borderColor: color,
+            tension: 0.1,
+            pointRadius: 1
+        }]
+    });
+
+    return (
+        <div className="p-4 space-y-10 max-w-4xl mx-auto">
+            <h1 className="text-2xl font-bold text-center">IoT Realtime Dashboard</h1>
+
+            {/* Realtime sensor values */}
+            <div className="grid grid-cols-3 gap-4 text-center text-lg">
+                <div>Temperature: {current.temp}°C</div>
+                <div>Humidity: {current.hum}%</div>
+                <div>MQ135: {current.mq}</div>
+            </div>
+
+            {/* Temperature Chart */}
+            <div className="w-full max-w-md mx-auto">
+                <h2 className="text-xl font-semibold mb-2 text-center">Temperature Over Time</h2>
+                <div style={{ height: '220px' }}>
+                    <Line data={generateChart('Temperature', 'temp', 'red')} options={chartOptions('temp')} />
+                </div>
+            </div>
+
+            {/* Humidity Chart */}
+            <div className="w-full max-w-md mx-auto">
+                <h2 className="text-xl font-semibold mb-2 text-center">Humidity Over Time</h2>
+                <div style={{ height: '220px' }}>
+                    <Line data={generateChart('Humidity', 'hum', 'blue')} options={chartOptions('hum')} />
+                </div>
+            </div>
+
+            {/* MQ135 Chart */}
+            <div className="w-full max-w-md mx-auto">
+                <h2 className="text-xl font-semibold mb-2 text-center">MQ135 Over Time</h2>
+                <div style={{ height: '220px' }}>
+                    <Line data={generateChart('Air Quality (MQ135)', 'mq', 'green')} options={chartOptions('mq')} />
+                </div>
+            </div>
+
+            {/* ARTag Track Visualization */}
+            <div className="w-full max-w-sm mx-auto border rounded-xl p-4 mt-10">
+                <h2 className="text-xl font-semibold mb-4 text-center">Current Track Section</h2>
+                <svg width="200" height="200" viewBox="0 0 200 200" className="mx-auto">
+                    {/* Top Edge */}
+                    <line x1="20" y1="20" x2="180" y2="20"
+                        stroke={currentEdge === 'top' ? 'green' : '#ccc'}
+                        strokeWidth="8" />
+                    {/* Right Edge */}
+                    <line x1="180" y1="20" x2="180" y2="180"
+                        stroke={currentEdge === 'right' ? 'green' : '#ccc'}
+                        strokeWidth="8" />
+                    {/* Bottom Edge */}
+                    <line x1="180" y1="180" x2="20" y2="180"
+                        stroke={currentEdge === 'bottom' ? 'green' : '#ccc'}
+                        strokeWidth="8" />
+                    {/* Left Edge */}
+                    <line x1="20" y1="180" x2="20" y2="20"
+                        stroke={currentEdge === 'left' ? 'green' : '#ccc'}
+                        strokeWidth="8" />
+                </svg>
+                <div className="text-center mt-2 text-lg">
+                    {currentEdge ? `Current Edge: ${currentEdge}` : 'Waiting for ARTag detection...'}
+                </div>
+            </div>
+        </div>
+    );
+}
